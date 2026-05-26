@@ -1,0 +1,13 @@
+{
+  "name": "local-grove-youtube-resolver",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "express": "^4.18.3",
+    "cors": "^2.8.5"
+  }
+}

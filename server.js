@@ -61,7 +61,7 @@ function getYtdlOptions() {
 }
 
 function getBaseUrl(req) {
-  return `${req.protocol}://${req.get('host')}`;
+  return `https://${req.get('host')}`;
 }
 
 app.get('/health', (req, res) => {

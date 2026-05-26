@@ -24,6 +24,10 @@ function cleanYouTubeUrl(input) {
       const url = new URL(raw);
       const id = url.searchParams.get('v');
       if (id) return `https://www.youtube.com/watch?v=${id}`;
+
+      const parts = url.pathname.split('/').filter(Boolean);
+      const possibleId = parts[parts.length - 1];
+      if (possibleId) return `https://www.youtube.com/watch?v=${possibleId}`;
     }
 
     return raw;
@@ -56,11 +60,15 @@ function getYtdlOptions() {
   return options;
 }
 
+function getBaseUrl(req) {
+  return `${req.protocol}://${req.get('host')}`;
+}
+
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
     service: 'local-grove-youtube-resolver',
-    version: '2.7.0-m4a-preferred',
+    version: '2.8.0-stream-proxy',
     proxyEnabled: Boolean(PROXY_URL),
     cookieEnabled: Boolean(YOUTUBE_COOKIE)
   });
@@ -71,7 +79,9 @@ app.get('/resolve', async (req, res) => {
     const originalUrl = req.query.url;
 
     if (!originalUrl) {
-      return res.status(400).json({ error: 'Missing url' });
+      return res.status(400).json({
+        error: 'Missing url'
+      });
     }
 
     const cleanUrl = cleanYouTubeUrl(originalUrl);
@@ -117,8 +127,12 @@ app.get('/resolve', async (req, res) => {
       });
     }
 
+    const streamProxyUrl =
+      `${getBaseUrl(req)}/stream?url=${encodeURIComponent(format.url)}`;
+
     return res.json({
-      streamUrl: format.url,
+      streamUrl: streamProxyUrl,
+      rawStreamUrl: format.url,
       title: info.videoDetails?.title || cleanUrl,
       author: info.videoDetails?.author?.name || '',
       duration: info.videoDetails?.lengthSeconds || null,
@@ -126,7 +140,8 @@ app.get('/resolve', async (req, res) => {
       selectedMimeType: format.mimeType || '',
       selectedContainer: format.container || '',
       proxyEnabled: Boolean(PROXY_URL),
-      cookieEnabled: Boolean(YOUTUBE_COOKIE)
+      cookieEnabled: Boolean(YOUTUBE_COOKIE),
+      streamProxied: true
     });
   } catch (err) {
     console.error('Resolve failed:', err);
@@ -139,9 +154,50 @@ app.get('/resolve', async (req, res) => {
   }
 });
 
+app.get('/stream', async (req, res) => {
+  try {
+    const targetUrl = req.query.url;
+
+    if (!targetUrl) {
+      return res.status(400).send('Missing stream url');
+    }
+
+    const headers = {
+      'user-agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
+      'accept-language': 'en-US,en;q=0.9'
+    };
+
+    if (YOUTUBE_COOKIE) {
+      headers.cookie = YOUTUBE_COOKIE;
+    }
+
+    const response = await fetch(targetUrl, {
+      headers
+    });
+
+    if (!response.ok || !response.body) {
+      return res.status(response.status).send(`Stream fetch failed: ${response.status}`);
+    }
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', response.headers.get('content-type') || 'audio/mp4');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    if (response.headers.get('content-length')) {
+      res.setHeader('Content-Length', response.headers.get('content-length'));
+    }
+
+    response.body.pipe(res);
+  } catch (err) {
+    console.error('Stream proxy failed:', err);
+    res.status(500).send(err.message || 'stream proxy failed');
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Local Grove YouTube resolver running on port ${PORT}`);
-  console.log(`Version: 2.7.0-m4a-preferred`);
+  console.log(`Version: 2.8.0-stream-proxy`);
   console.log(`Proxy enabled: ${Boolean(PROXY_URL)}`);
   console.log(`Cookie enabled: ${Boolean(YOUTUBE_COOKIE)}`);
 });
